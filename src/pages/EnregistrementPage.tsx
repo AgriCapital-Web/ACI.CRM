@@ -9,12 +9,21 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Camera, Save, Smartphone } from "lucide-react";
 import { mockMetiers } from "@/data/mockData";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 
 const EnregistrementPage = () => {
   const [categorie, setCategorie] = useState("");
   const [metier, setMetier] = useState("");
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [form, setForm] = useState<Record<string, string>>({
+    sexe: "M", nationalite: "Ivoirienne",
+  });
   const { toast } = useToast();
+  const { user } = useAuth();
+  const { isOnline, addToQueue } = useOfflineSync();
 
   const metiersList = categorie ? mockMetiers[categorie as keyof typeof mockMetiers] || [] : [];
 
@@ -27,12 +36,61 @@ const EnregistrementPage = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const update = (key: string, value: string) => setForm(prev => ({ ...prev, [key]: value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast({
-      title: "Enregistrement sauvegardé",
-      description: "Le bénéficiaire a été enregistré avec succès. Matricule: ACI-0009",
-    });
+    setIsSubmitting(true);
+
+    const beneficiaireData = {
+      nom: form.nom?.toUpperCase(),
+      prenoms: form.prenoms,
+      date_naissance: form.date_naissance,
+      lieu_naissance: form.lieu_naissance,
+      sexe: form.sexe,
+      nationalite: form.nationalite,
+      taille: form.taille ? parseFloat(form.taille) : null,
+      profession: metier === "autre" ? form.metier_autre : metier,
+      categorie_metier: categorie,
+      domicile: form.domicile,
+      telephone: form.telephone,
+      numero_mobile_money: form.mobile_money,
+      operateur_mobile_money: form.operateur,
+      rccm: form.rccm || null,
+      commercial_id: user?.id,
+    };
+
+    try {
+      if (isOnline) {
+        // Generate matricule
+        const { data: matricule } = await supabase.rpc("generate_matricule");
+        
+        const { error } = await supabase.from("beneficiaires").insert({
+          ...beneficiaireData,
+          matricule: matricule || `ACI-${Date.now()}`,
+        });
+
+        if (error) throw error;
+        toast({ title: "Enregistrement réussi", description: `Bénéficiaire enregistré: ${matricule}` });
+      } else {
+        addToQueue("insert", "beneficiaires", {
+          ...beneficiaireData,
+          matricule: `ACI-LOCAL-${Date.now()}`,
+          local_id: `local-${Date.now()}`,
+        });
+        toast({ title: "Sauvegardé hors ligne", description: "L'enregistrement sera synchronisé automatiquement." });
+      }
+
+      // Reset form
+      setForm({ sexe: "M", nationalite: "Ivoirienne" });
+      setCategorie("");
+      setMetier("");
+      setPhotoPreview(null);
+    } catch (err: any) {
+      toast({ title: "Erreur", description: err.message, variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -43,7 +101,6 @@ const EnregistrementPage = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Section 1: Identité */}
         <Card className="shadow-card">
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -66,29 +123,29 @@ const EnregistrementPage = () => {
                   <input type="file" accept="image/*" capture="user" className="hidden" onChange={handlePhotoChange} />
                 </label>
               </div>
-              <div className="space-y-2"><Label>Nom *</Label><Input placeholder="KONAN" required className="h-10 uppercase" /></div>
-              <div className="space-y-2"><Label>Prénom(s) *</Label><Input placeholder="Yao Jean" required className="h-10" /></div>
-              <div className="space-y-2"><Label>Date de naissance *</Label><Input type="date" required className="h-10" /></div>
-              <div className="space-y-2"><Label>Lieu de naissance *</Label><Input placeholder="Bouaké, Côte d'Ivoire" required className="h-10" /></div>
+              <div className="space-y-2"><Label>Nom *</Label><Input placeholder="KONAN" required className="h-10 uppercase" value={form.nom || ""} onChange={e => update("nom", e.target.value)} /></div>
+              <div className="space-y-2"><Label>Prénom(s) *</Label><Input placeholder="Yao Jean" required className="h-10" value={form.prenoms || ""} onChange={e => update("prenoms", e.target.value)} /></div>
+              <div className="space-y-2"><Label>Date de naissance *</Label><Input type="date" required className="h-10" value={form.date_naissance || ""} onChange={e => update("date_naissance", e.target.value)} /></div>
+              <div className="space-y-2"><Label>Lieu de naissance *</Label><Input placeholder="Bouaké, Côte d'Ivoire" required className="h-10" value={form.lieu_naissance || ""} onChange={e => update("lieu_naissance", e.target.value)} /></div>
               <div className="space-y-2">
                 <Label>Sexe *</Label>
-                <RadioGroup defaultValue="M" className="flex gap-6 mt-2">
+                <RadioGroup value={form.sexe} onValueChange={v => update("sexe", v)} className="flex gap-6 mt-2">
                   <div className="flex items-center space-x-2"><RadioGroupItem value="M" id="m" /><Label htmlFor="m" className="font-normal">Masculin</Label></div>
                   <div className="flex items-center space-x-2"><RadioGroupItem value="F" id="f" /><Label htmlFor="f" className="font-normal">Féminin</Label></div>
                 </RadioGroup>
               </div>
-              <div className="space-y-2"><Label>Taille (m)</Label><Input type="number" step="0.01" placeholder="1.70" className="h-10" /></div>
+              <div className="space-y-2"><Label>Taille (m)</Label><Input type="number" step="0.01" placeholder="1.70" className="h-10" value={form.taille || ""} onChange={e => update("taille", e.target.value)} /></div>
               <div className="space-y-2">
                 <Label>Nationalité *</Label>
-                <Select defaultValue="ivoirienne">
+                <Select value={form.nationalite} onValueChange={v => update("nationalite", v)}>
                   <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ivoirienne">Ivoirienne</SelectItem>
-                    <SelectItem value="burkinabe">Burkinabè</SelectItem>
-                    <SelectItem value="malienne">Malienne</SelectItem>
-                    <SelectItem value="guineenne">Guinéenne</SelectItem>
-                    <SelectItem value="senegalaise">Sénégalaise</SelectItem>
-                    <SelectItem value="autre">Autre</SelectItem>
+                    <SelectItem value="Ivoirienne">Ivoirienne</SelectItem>
+                    <SelectItem value="Burkinabè">Burkinabè</SelectItem>
+                    <SelectItem value="Malienne">Malienne</SelectItem>
+                    <SelectItem value="Guinéenne">Guinéenne</SelectItem>
+                    <SelectItem value="Sénégalaise">Sénégalaise</SelectItem>
+                    <SelectItem value="Autre">Autre</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -96,7 +153,6 @@ const EnregistrementPage = () => {
           </CardContent>
         </Card>
 
-        {/* Section 2 */}
         <Card className="shadow-card">
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -124,22 +180,21 @@ const EnregistrementPage = () => {
               {metier === "autre" && (
                 <div className="md:col-span-2 space-y-2 animate-fade-in">
                   <Label>Précisez le métier *</Label>
-                  <Input placeholder="Saisissez le métier" required className="h-10" />
+                  <Input placeholder="Saisissez le métier" required className="h-10" value={form.metier_autre || ""} onChange={e => update("metier_autre", e.target.value)} />
                 </div>
               )}
               <div className="md:col-span-2 space-y-2">
                 <Label>Domicile / Adresse *</Label>
-                <Textarea placeholder="Quartier, commune, ville..." required className="min-h-[80px]" />
+                <Textarea placeholder="Quartier, commune, ville..." required className="min-h-[80px]" value={form.domicile || ""} onChange={e => update("domicile", e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>N° RCCM (si applicable)</Label>
-                <Input placeholder="CI-ABJ-03-B13-XXXXX" className="h-10" />
+                <Input placeholder="CI-ABJ-03-B13-XXXXX" className="h-10" value={form.rccm || ""} onChange={e => update("rccm", e.target.value)} />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* Section 3 */}
         <Card className="shadow-card">
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -147,11 +202,11 @@ const EnregistrementPage = () => {
               Contact & Paiement
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2"><Label>Numéro d'urgence *</Label><Input type="tel" placeholder="07 XX XX XX XX" required className="h-10" /></div>
-              <div className="space-y-2"><Label>Numéro Mobile Money *</Label><Input type="tel" placeholder="07 XX XX XX XX" required className="h-10" /></div>
+              <div className="space-y-2"><Label>Numéro d'urgence *</Label><Input type="tel" placeholder="07 XX XX XX XX" required className="h-10" value={form.telephone || ""} onChange={e => update("telephone", e.target.value)} /></div>
+              <div className="space-y-2"><Label>Numéro Mobile Money *</Label><Input type="tel" placeholder="07 XX XX XX XX" required className="h-10" value={form.mobile_money || ""} onChange={e => update("mobile_money", e.target.value)} /></div>
               <div className="space-y-2">
                 <Label>Opérateur *</Label>
-                <Select>
+                <Select onValueChange={v => update("operateur", v)}>
                   <SelectTrigger className="h-10"><SelectValue placeholder="Sélectionner" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="orange">Orange Money</SelectItem>
@@ -160,21 +215,15 @@ const EnregistrementPage = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2 flex items-end">
-                <Button type="button" variant="outline" className="w-full h-10 border-primary text-primary hover:bg-primary/5">
-                  <Smartphone className="h-4 w-4 mr-2" />
-                  Paiement 1 000 FCFA
-                </Button>
-              </div>
             </div>
           </CardContent>
         </Card>
 
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline">Annuler</Button>
-          <Button type="submit" className="gradient-primary font-semibold px-8">
+          <Button type="submit" className="gradient-primary font-semibold px-8" disabled={isSubmitting}>
             <Save className="h-4 w-4 mr-2" />
-            Enregistrer le bénéficiaire
+            {isSubmitting ? "Enregistrement..." : "Enregistrer le bénéficiaire"}
           </Button>
         </div>
       </form>

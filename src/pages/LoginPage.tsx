@@ -6,22 +6,37 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Eye, EyeOff, LogIn } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import aciLogo from "@/assets/aci-logo.jpeg";
 
 const LoginPage = () => {
-  const [email, setEmail] = useState("dg@aci.ci");
-  const [password, setPassword] = useState("password");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
+
+  // Redirect if already authenticated
+  if (isAuthenticated) {
+    navigate("/dashboard");
+    return null;
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!username.trim() || !password.trim()) return;
     setIsLoading(true);
     try {
-      await login(email, password);
+      await login(username.trim(), password);
       navigate("/dashboard");
+    } catch (err: any) {
+      toast({
+        title: "Erreur de connexion",
+        description: err.message || "Identifiants incorrects",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -29,7 +44,6 @@ const LoginPage = () => {
 
   return (
     <div className="min-h-screen flex gradient-hero">
-      {/* Left side - Branding */}
       <div className="hidden lg:flex lg:w-1/2 items-center justify-center p-12">
         <div className="text-center animate-fade-in">
           <img src={aciLogo} alt="ACI" className="w-64 h-64 mx-auto mb-8 object-contain drop-shadow-2xl rounded-xl" />
@@ -51,7 +65,6 @@ const LoginPage = () => {
         </div>
       </div>
 
-      {/* Right side - Login Form */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
         <Card className="w-full max-w-md shadow-elevated border-0 animate-fade-in">
           <CardContent className="p-8">
@@ -61,19 +74,19 @@ const LoginPage = () => {
             </div>
             <div className="text-center mb-8">
               <h2 className="text-2xl font-bold text-foreground">Connexion</h2>
-              <p className="text-muted-foreground mt-1">Accédez à votre espace de travail</p>
+              <p className="text-muted-foreground mt-1">Connectez-vous avec votre nom d'utilisateur</p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
-                <Label htmlFor="email">Adresse e-mail</Label>
-                <Input id="email" type="email" placeholder="votre@email.ci" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-11" />
+                <Label htmlFor="username">Nom d'utilisateur</Label>
+                <Input id="username" type="text" placeholder="votre_nom_utilisateur" value={username} onChange={(e) => setUsername(e.target.value)} required className="h-11" autoComplete="username" />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="password">Mot de passe</Label>
                 <div className="relative">
-                  <Input id="password" type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required className="h-11 pr-10" />
+                  <Input id="password" type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required className="h-11 pr-10" autoComplete="current-password" />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -90,11 +103,6 @@ const LoginPage = () => {
               <Link to="/inscription" className="text-sm text-primary hover:underline font-medium">
                 Pas encore de compte ? S'inscrire
               </Link>
-            </div>
-
-            <div className="mt-6 pt-6 border-t border-border">
-              <p className="text-xs text-muted-foreground text-center mb-2">Démo — Cliquez pour vous connecter</p>
-              <p className="text-xs text-muted-foreground text-center">Email: dg@aci.ci / Mot de passe: quelconque</p>
             </div>
           </CardContent>
         </Card>
