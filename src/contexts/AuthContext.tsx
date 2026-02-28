@@ -1,56 +1,172 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
 
-export type UserRole = "dg" | "assistante_dg" | "comptable" | "manager_national" | "responsable_commercial" | "chef_equipe" | "commercial";
+export type UserRole = "super_admin" | "dg" | "assistante_dg" | "comptable" | "manager_national" | "responsable_commercial" | "chef_equipe" | "commercial";
 
 export interface User {
   id: string;
   nom: string;
   prenoms: string;
+  username: string;
   email: string;
   telephone: string;
   role: UserRole;
-  photo?: string;
+  photo_url?: string;
   district?: string;
   region?: string;
   departement?: string;
-  statut: "actif" | "en_attente" | "suspendu";
+  sous_prefecture?: string;
+  status: "actif" | "en_attente" | "suspendu" | "refuse";
 }
 
 interface AuthContextType {
   user: User | null;
+  supabaseUser: SupabaseUser | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
-  setMockRole: (role: UserRole) => void;
+  isLoading: boolean;
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  signup: (data: SignupData) => Promise<void>;
 }
 
-const mockUsers: Record<UserRole, User> = {
-  dg: { id: "1", nom: "KONÉ", prenoms: "Amadou", email: "dg@aci.ci", telephone: "0545108044", role: "dg", statut: "actif", district: "District Autonome d'Abidjan" },
-  assistante_dg: { id: "2", nom: "DIALLO", prenoms: "Fatou", email: "assistante@aci.ci", telephone: "0707070707", role: "assistante_dg", statut: "actif" },
-  comptable: { id: "3", nom: "BAMBA", prenoms: "Aïssatou", email: "compta@aci.ci", telephone: "0303030303", role: "comptable", statut: "actif" },
-  manager_national: { id: "4", nom: "TRAORÉ", prenoms: "Ibrahim", email: "manager@aci.ci", telephone: "0505050505", role: "manager_national", statut: "actif" },
-  responsable_commercial: { id: "5", nom: "SYLLA", prenoms: "Kadiatou", email: "rcom@aci.ci", telephone: "0606060606", role: "responsable_commercial", statut: "actif", district: "District Autonome d'Abidjan", region: "Région des Lagunes" },
-  chef_equipe: { id: "6", nom: "COULIBALY", prenoms: "Mariam", email: "chef@aci.ci", telephone: "0101010101", role: "chef_equipe", statut: "actif", district: "District Autonome d'Abidjan", region: "Région des Lagunes", departement: "Département d'Abidjan" },
-  commercial: { id: "7", nom: "OUATTARA", prenoms: "Moussa", email: "commercial@aci.ci", telephone: "0202020202", role: "commercial", statut: "actif", district: "District Autonome d'Abidjan", region: "Région des Lagunes", departement: "Département d'Abidjan" },
-};
+export interface SignupData {
+  username: string;
+  nom: string;
+  prenoms: string;
+  email: string;
+  telephone: string;
+  password: string;
+  role_souhaite: UserRole;
+  district?: string;
+  region?: string;
+  departement?: string;
+  sous_prefecture?: string;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const login = async (_email: string, _password: string) => {
-    setUser(mockUsers.dg);
+  const fetchUserProfile = async (supaUser: SupabaseUser) => {
+    try {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", supaUser.id)
+        .single();
+
+      const { data: roleData } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", supaUser.id)
+        .limit(1)
+        .single();
+
+      if (profile) {
+        setUser({
+          id: profile.id,
+          nom: profile.nom,
+          prenoms: profile.prenoms,
+          username: profile.username,
+          email: profile.email,
+          telephone: profile.telephone || "",
+          role: (roleData?.role as UserRole) || "commercial",
+          photo_url: profile.photo_url,
+          district: profile.district,
+          region: profile.region,
+          departement: profile.departement,
+          sous_prefecture: profile.sous_prefecture,
+          status: profile.status as any,
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching profile:", err);
+    }
   };
 
-  const logout = () => setUser(null);
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setSupabaseUser(session.user);
+        setTimeout(() => fetchUserProfile(session.user), 0);
+      } else {
+        setSupabaseUser(null);
+        setUser(null);
+      }
+      setIsLoading(false);
+    });
 
-  const setMockRole = (role: UserRole) => {
-    setUser(mockUsers[role]);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        setSupabaseUser(session.user);
+        fetchUserProfile(session.user);
+      }
+      setIsLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const login = async (username: string, password: string) => {
+    // First find email by username
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("email")
+      .eq("username", username)
+      .single();
+
+    if (!profile) {
+      throw new Error("Nom d'utilisateur introuvable");
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: profile.email,
+      password,
+    });
+
+    if (error) throw new Error(error.message === "Invalid login credentials" ? "Mot de passe incorrect" : error.message);
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setSupabaseUser(null);
+  };
+
+  const signup = async (data: SignupData) => {
+    const { error } = await supabase.auth.signUp({
+      email: data.email,
+      password: data.password,
+      options: {
+        data: {
+          username: data.username,
+          nom: data.nom,
+          prenoms: data.prenoms,
+          telephone: data.telephone,
+        },
+      },
+    });
+
+    if (error) throw error;
+
+    // Update profile with extra fields after signup
+    const { data: session } = await supabase.auth.getSession();
+    if (session?.session?.user) {
+      await supabase.from("profiles").update({
+        district: data.district,
+        region: data.region,
+        departement: data.departement,
+        sous_prefecture: data.sous_prefecture,
+      }).eq("id", session.session.user.id);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, logout, setMockRole }}>
+    <AuthContext.Provider value={{ user, supabaseUser, isAuthenticated: !!user, isLoading, login, logout, signup }}>
       {children}
     </AuthContext.Provider>
   );
@@ -63,6 +179,7 @@ export function useAuth() {
 }
 
 export const roleLabels: Record<UserRole, string> = {
+  super_admin: "Super Admin",
   dg: "Directeur Général",
   assistante_dg: "Assistante DG",
   comptable: "Comptable",
@@ -71,3 +188,16 @@ export const roleLabels: Record<UserRole, string> = {
   chef_equipe: "Chef d'équipe",
   commercial: "Commercial",
 };
+
+export const roleHierarchy: UserRole[] = [
+  "super_admin", "dg", "assistante_dg", "comptable", 
+  "manager_national", "responsable_commercial", "chef_equipe", "commercial"
+];
+
+export function canManageRole(currentRole: UserRole, targetRole: UserRole): boolean {
+  return roleHierarchy.indexOf(currentRole) < roleHierarchy.indexOf(targetRole);
+}
+
+export function isAdmin(role: UserRole): boolean {
+  return ["super_admin", "dg", "assistante_dg"].includes(role);
+}

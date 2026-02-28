@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import InscriptionPage from "./pages/InscriptionPage";
@@ -15,6 +15,7 @@ import PaiementsPage from "./pages/PaiementsPage";
 import UtilisateursPage from "./pages/UtilisateursPage";
 import ZonesPage from "./pages/ZonesPage";
 import ExportPDFPage from "./pages/ExportPDFPage";
+import CartesDistributionPage from "./pages/CartesDistributionPage";
 import { RapportsPage, ParametresPage } from "./pages/PlaceholderPages";
 import NotFound from "./pages/NotFound";
 
@@ -36,6 +37,7 @@ const App = () => (
               <Route path="beneficiaires/:id" element={<BeneficiaireDetailPage />} />
               <Route path="enregistrer" element={<EnregistrementPage />} />
               <Route path="paiements" element={<PaiementsPage />} />
+              <Route path="cartes" element={<CartesDistributionPage />} />
               <Route path="utilisateurs" element={<UtilisateursPage />} />
               <Route path="zones" element={<ZonesPage />} />
               <Route path="rapports" element={<RapportsPage />} />
